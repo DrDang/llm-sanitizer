@@ -1,0 +1,4 @@
+{
+  "name": "LLM Sanitizer",
+  "description": "A privacy layer for AI workflows. Sanitize sensitive data before sending it to LLMs, and restore it locally."
+}
