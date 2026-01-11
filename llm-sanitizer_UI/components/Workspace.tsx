@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowRight, Copy, Check, RefreshCw, Wand2, RotateCcw, Lock, Unlock } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, Copy, Check, Wand2, RotateCcw, Lock, Unlock, Hash, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from './Button';
-import { Term } from '../types';
-import { sanitizeText, desanitizeText } from '../services/sanitizer';
+import { Term, SanitizationSession, NumberSanitizeOptions } from '../types';
+import { sanitizeText, desanitizeText, sanitizeNumbers, DEFAULT_NUMBER_OPTIONS } from '../services/sanitizer';
 
 interface WorkspaceProps {
   activeTerms: Term[];
@@ -14,25 +14,35 @@ export const Workspace: React.FC<WorkspaceProps> = ({ activeTerms }) => {
   const [mode, setMode] = useState<'sanitize' | 'desanitize'>('sanitize');
   const [hasCopiedInput, setHasCopiedInput] = useState(false);
   const [hasCopiedOutput, setHasCopiedOutput] = useState(false);
-  const [stats, setStats] = useState({ replacements: 0 });
+  const [stats, setStats] = useState({ termReplacements: 0, numberReplacements: 0 });
+
+  // Auto-number sanitization state
+  const [numberOptions, setNumberOptions] = useState<NumberSanitizeOptions>(DEFAULT_NUMBER_OPTIONS);
+  const [showNumberOptions, setShowNumberOptions] = useState(false);
+  const [currentSession, setCurrentSession] = useState<SanitizationSession | null>(null);
 
   const handleAction = () => {
     if (mode === 'sanitize') {
-      const { result, stats: count } = sanitizeText(inputText, activeTerms);
-      setOutputText(result);
-      setStats({ replacements: count });
+      // First, sanitize dictionary terms
+      const { result: afterTerms, stats: termCount } = sanitizeText(inputText, activeTerms);
+
+      // Then, sanitize numbers if enabled
+      const { result: final, session, stats: numberCount } = sanitizeNumbers(afterTerms, numberOptions);
+
+      setOutputText(final);
+      setStats({ termReplacements: termCount, numberReplacements: numberCount });
+
+      // Store session for desanitization
+      if (session.numberMappings.length > 0) {
+        setCurrentSession(session);
+      }
     } else {
-      const { result, stats: count } = desanitizeText(inputText, activeTerms);
+      // Desanitize using both terms and session
+      const { result, stats: count } = desanitizeText(inputText, activeTerms, currentSession || undefined);
       setOutputText(result);
-      setStats({ replacements: count });
+      setStats({ termReplacements: count, numberReplacements: 0 });
     }
   };
-
-  // Auto-action when switching modes if there is text
-  useEffect(() => {
-    // Optional: Clear output on mode switch to avoid confusion
-    // setOutputText('');
-  }, [mode]);
 
   const copyToClipboard = async (text: string, isInput: boolean) => {
     await navigator.clipboard.writeText(text);
@@ -48,49 +58,140 @@ export const Workspace: React.FC<WorkspaceProps> = ({ activeTerms }) => {
   const clearAll = () => {
     setInputText('');
     setOutputText('');
-    setStats({ replacements: 0 });
+    setStats({ termReplacements: 0, numberReplacements: 0 });
+    setCurrentSession(null);
   };
+
+  const toggleNumberOption = (key: keyof NumberSanitizeOptions) => {
+    setNumberOptions((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const totalReplacements = stats.termReplacements + stats.numberReplacements;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-dark-900 overflow-hidden relative">
       
       {/* Mode Toggle Header */}
-      <div className="flex items-center justify-between px-8 py-4 bg-dark-900 border-b border-slate-800">
-        <div className="flex p-1 bg-dark-800 rounded-lg border border-slate-700">
-          <button
-            onClick={() => { setMode('sanitize'); setInputText(''); setOutputText(''); }}
-            className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-              mode === 'sanitize' 
-                ? 'bg-brand-600 text-white shadow-md' 
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Lock className="w-3.5 h-3.5 mr-2" />
-            Sanitize
-          </button>
-          <button
-            onClick={() => { setMode('desanitize'); setInputText(''); setOutputText(''); }}
-            className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-              mode === 'desanitize' 
-                ? 'bg-emerald-600 text-white shadow-md' 
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Unlock className="w-3.5 h-3.5 mr-2" />
-            Restore
-          </button>
+      <div className="flex flex-col bg-dark-900 border-b border-slate-800">
+        <div className="flex items-center justify-between px-8 py-4">
+          <div className="flex items-center space-x-4">
+            <div className="flex p-1 bg-dark-800 rounded-lg border border-slate-700">
+              <button
+                onClick={() => { setMode('sanitize'); setInputText(''); setOutputText(''); setCurrentSession(null); }}
+                className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  mode === 'sanitize'
+                    ? 'bg-brand-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5 mr-2" />
+                Sanitize
+              </button>
+              <button
+                onClick={() => { setMode('desanitize'); setInputText(''); setOutputText(''); }}
+                className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  mode === 'desanitize'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Unlock className="w-3.5 h-3.5 mr-2" />
+                Restore
+              </button>
+            </div>
+
+            {/* Auto-number toggle - only show in sanitize mode */}
+            {mode === 'sanitize' && (
+              <div className="flex items-center">
+                <button
+                  onClick={() => toggleNumberOption('enabled')}
+                  className={`flex items-center px-3 py-1.5 rounded-l-md text-sm font-medium transition-all border ${
+                    numberOptions.enabled
+                      ? 'bg-amber-600/20 text-amber-400 border-amber-600/50'
+                      : 'bg-dark-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  <Hash className="w-3.5 h-3.5 mr-2" />
+                  Auto-Numbers
+                </button>
+                {numberOptions.enabled && (
+                  <button
+                    onClick={() => setShowNumberOptions(!showNumberOptions)}
+                    className="flex items-center px-2 py-1.5 rounded-r-md text-sm font-medium transition-all bg-amber-600/20 text-amber-400 border border-l-0 border-amber-600/50 hover:bg-amber-600/30"
+                  >
+                    {showNumberOptions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Session indicator - show when we have a session stored */}
+            {mode === 'desanitize' && currentSession && currentSession.numberMappings.length > 0 && (
+              <span className="text-xs font-mono text-amber-400 bg-amber-900/20 px-3 py-1 rounded-full border border-amber-900/50">
+                {currentSession.numberMappings.length} number mappings ready
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-4">
+             {totalReplacements > 0 && (
+               <span className="text-xs font-mono text-brand-400 bg-brand-900/20 px-3 py-1 rounded-full border border-brand-900/50">
+                 {stats.termReplacements > 0 && `${stats.termReplacements} terms`}
+                 {stats.termReplacements > 0 && stats.numberReplacements > 0 && ', '}
+                 {stats.numberReplacements > 0 && `${stats.numberReplacements} numbers`}
+                 {' processed'}
+               </span>
+             )}
+             <Button variant="ghost" size="sm" onClick={clearAll} className="text-slate-500">
+               Clear All
+             </Button>
+          </div>
         </div>
-        
-        <div className="flex items-center space-x-4">
-           {stats.replacements > 0 && (
-             <span className="text-xs font-mono text-brand-400 bg-brand-900/20 px-3 py-1 rounded-full border border-brand-900/50">
-               {stats.replacements} terms processed
-             </span>
-           )}
-           <Button variant="ghost" size="sm" onClick={clearAll} className="text-slate-500">
-             Clear All
-           </Button>
-        </div>
+
+        {/* Number options panel */}
+        {mode === 'sanitize' && numberOptions.enabled && showNumberOptions && (
+          <div className="px-8 py-3 bg-dark-800/50 border-t border-slate-800/50 flex flex-wrap gap-4">
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={numberOptions.includeIntegers}
+                onChange={() => toggleNumberOption('includeIntegers')}
+                className="w-4 h-4 rounded border-slate-600 bg-dark-700 text-amber-500 focus:ring-amber-500/50"
+              />
+              <span className="text-sm text-slate-300">Integers <span className="text-slate-500">(42, 1000)</span></span>
+            </label>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={numberOptions.includeDecimals}
+                onChange={() => toggleNumberOption('includeDecimals')}
+                className="w-4 h-4 rounded border-slate-600 bg-dark-700 text-amber-500 focus:ring-amber-500/50"
+              />
+              <span className="text-sm text-slate-300">Decimals <span className="text-slate-500">(3.14, 0.5)</span></span>
+            </label>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={numberOptions.includeMeasurements}
+                onChange={() => toggleNumberOption('includeMeasurements')}
+                className="w-4 h-4 rounded border-slate-600 bg-dark-700 text-amber-500 focus:ring-amber-500/50"
+              />
+              <span className="text-sm text-slate-300">Measurements <span className="text-slate-500">(5 mg, 100 MHz, -3 dBm)</span></span>
+            </label>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={numberOptions.includeCurrency}
+                onChange={() => toggleNumberOption('includeCurrency')}
+                className="w-4 h-4 rounded border-slate-600 bg-dark-700 text-amber-500 focus:ring-amber-500/50"
+              />
+              <span className="text-sm text-slate-300">Currency <span className="text-slate-500">($100, \u20ac50)</span></span>
+            </label>
+          </div>
+        )}
       </div>
 
       {/* Main Split View */}
