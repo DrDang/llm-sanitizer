@@ -58,18 +58,41 @@ const App: React.FC = () => {
     setActiveProfileId(newProfile.id);
   };
 
+  const handleImportProfiles = (importedProfiles: Profile[]) => {
+    setProfiles(importedProfiles);
+    // Set active profile to the first imported profile
+    if (importedProfiles.length > 0) {
+      setActiveProfileId(importedProfiles[0].id);
+    }
+  };
+
+  const handleDeleteProfile = (profileId: string) => {
+    // Prevent deleting the last profile
+    if (profiles.length === 1) return;
+
+    const updatedProfiles = profiles.filter(p => p.id !== profileId);
+    setProfiles(updatedProfiles);
+
+    // If the deleted profile was active, switch to the first remaining profile
+    if (profileId === activeProfileId && updatedProfiles.length > 0) {
+      setActiveProfileId(updatedProfiles[0].id);
+    }
+  };
+
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
   return (
     <div className="flex h-screen w-full bg-dark-950 text-slate-200 overflow-hidden font-sans selection:bg-brand-500/30">
       
       {/* Sidebar (The Vault) */}
-      <Vault 
+      <Vault
         profiles={profiles}
         activeProfileId={activeProfileId}
         onSelectProfile={setActiveProfileId}
         onCreateProfile={handleCreateProfile}
+        onDeleteProfile={handleDeleteProfile}
         onUpdateTerms={handleUpdateTerms}
+        onImportProfiles={handleImportProfiles}
       />
 
       {/* Main Content (Workspace) */}

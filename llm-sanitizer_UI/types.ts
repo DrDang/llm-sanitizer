@@ -16,3 +16,9 @@ export interface ProcessingStats {
   originalLength: number;
   sanitizedLength: number;
 }
+
+export interface BackupData {
+  version: string;
+  exportDate: string;
+  profiles: Profile[];
+}

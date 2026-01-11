@@ -2,14 +2,13 @@ import { Term } from '../types';
 
 /**
  * Generates a unique placeholder ID if one isn't provided.
- * E.g., [SEC_A1B2]
+ * E.g., {{SEC_A1B2}}
  */
-export const generatePlaceholder = (original: string): string => {
-  // Create a pseudo-random short hash
-  const hash = Math.random().toString(36).substring(2, 6).toUpperCase();
-  // Use the first 3 letters of the original word to make it slightly readable/traceable for the user
-  const hint = original.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase();
-  return `{{${hint}_${hash}}}`;
+export const generatePlaceholder = (_original: string): string => {
+  // Create a fully random placeholder with no connection to the original text
+  // to prevent reverse-engineering of sensitive information
+  const randomId = Math.random().toString(36).substring(2, 10).toUpperCase();
+  return `{{SEC_${randomId}}}`;
 };
 
 /**

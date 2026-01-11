@@ -1,27 +1,37 @@
-import React, { useState } from 'react';
-import { Plus, Trash2, Check, Shield, Search, Copy, RefreshCw, ChevronRight, Settings } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Trash2, Check, Shield, Search, Copy, RefreshCw, ChevronRight, Settings, Download, Upload } from 'lucide-react';
 import { Profile, Term } from '../types';
 import { Button } from './Button';
 import { generatePlaceholder } from '../services/sanitizer';
+import { exportProfiles, importProfiles } from '../services/profileBackup';
 
 interface VaultProps {
   profiles: Profile[];
   activeProfileId: string;
   onSelectProfile: (id: string) => void;
   onCreateProfile: (name: string) => void;
+  onDeleteProfile: (id: string) => void;
   onUpdateTerms: (profileId: string, terms: Term[]) => void;
+  onImportProfiles: (profiles: Profile[]) => void;
 }
 
-export const Vault: React.FC<VaultProps> = ({ 
-  profiles, 
-  activeProfileId, 
-  onSelectProfile, 
+export const Vault: React.FC<VaultProps> = ({
+  profiles,
+  activeProfileId,
+  onSelectProfile,
   onCreateProfile,
-  onUpdateTerms
+  onDeleteProfile,
+  onUpdateTerms,
+  onImportProfiles
 }) => {
   const [newTermOriginal, setNewTermOriginal] = useState('');
   const [newProfileName, setNewProfileName] = useState('');
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
@@ -59,6 +69,78 @@ export const Vault: React.FC<VaultProps> = ({
     }
   };
 
+  const handleExport = () => {
+    try {
+      exportProfiles(profiles);
+      showNotification('success', 'Profiles exported successfully!');
+    } catch (error) {
+      showNotification('error', 'Failed to export profiles. Please try again.');
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPendingImportFile(file);
+      setShowImportConfirm(true);
+    }
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
+
+  const handleConfirmImport = async () => {
+    if (!pendingImportFile) return;
+
+    try {
+      const importedProfiles = await importProfiles(pendingImportFile);
+      onImportProfiles(importedProfiles);
+      showNotification('success', `Successfully imported ${importedProfiles.length} profile(s)!`);
+      setShowImportConfirm(false);
+      setPendingImportFile(null);
+    } catch (error) {
+      showNotification('error', error instanceof Error ? error.message : 'Failed to import profiles.');
+      setShowImportConfirm(false);
+      setPendingImportFile(null);
+    }
+  };
+
+  const handleCancelImport = () => {
+    setShowImportConfirm(false);
+    setPendingImportFile(null);
+  };
+
+  const handleDeleteProfileClick = () => {
+    if (profiles.length === 1) {
+      showNotification('error', 'Cannot delete the last profile.');
+      return;
+    }
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDeleteProfile = () => {
+    if (profiles.length === 1) {
+      showNotification('error', 'Cannot delete the last profile.');
+      setShowDeleteConfirm(false);
+      return;
+    }
+    onDeleteProfile(activeProfileId);
+    showNotification('success', 'Profile deleted successfully.');
+    setShowDeleteConfirm(false);
+  };
+
+  const handleCancelDeleteProfile = () => {
+    setShowDeleteConfirm(false);
+  };
+
+  const showNotification = (type: 'success' | 'error', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
   return (
     <div className="flex flex-col h-full bg-dark-950 border-r border-slate-800 w-80 shrink-0">
       {/* Header */}
@@ -70,9 +152,20 @@ export const Vault: React.FC<VaultProps> = ({
 
         {/* Profile Selector */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Profile</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Profile</label>
+            {profiles.length > 1 && (
+              <button
+                onClick={handleDeleteProfileClick}
+                title="Delete current profile"
+                className="text-slate-500 hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <div className="relative">
-            <select 
+            <select
               value={activeProfileId}
               onChange={(e) => onSelectProfile(e.target.value)}
               className="w-full bg-dark-800 text-slate-200 border border-slate-700 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent appearance-none"
@@ -179,11 +272,98 @@ export const Vault: React.FC<VaultProps> = ({
         )}
       </div>
 
-      {/* Footer Stats */}
-      <div className="p-4 border-t border-slate-800 bg-dark-900 text-xs text-slate-500 flex justify-between items-center">
-        <span>{activeProfile.terms.length} stored terms</span>
-        <Settings className="w-4 h-4 hover:text-slate-300 cursor-pointer" />
+      {/* Footer with Export/Import */}
+      <div className="border-t border-slate-800 bg-dark-900">
+        <div className="p-3 flex gap-2">
+          <button
+            onClick={handleExport}
+            title="Exported file contains sensitive data in plaintext"
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 bg-dark-800 hover:bg-dark-700 border border-slate-700 rounded-lg transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export All
+          </button>
+          <button
+            onClick={handleImportClick}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 bg-dark-800 hover:bg-dark-700 border border-slate-700 rounded-lg transition-colors"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Import
+          </button>
+        </div>
+        <div className="px-4 pb-3 text-xs text-slate-500 flex justify-between items-center">
+          <span>{activeProfile.terms.length} stored terms</span>
+        </div>
       </div>
+
+      {/* Hidden File Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      {/* Import Confirmation Dialog */}
+      {showImportConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-dark-800 border border-slate-700 rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-100 mb-2">Replace All Profiles?</h3>
+            <p className="text-sm text-slate-400 mb-6">
+              This will replace all existing profiles with the imported data. This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button variant="ghost" onClick={handleCancelImport}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleConfirmImport}>
+                Import & Replace
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Profile Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-dark-800 border border-slate-700 rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-100 mb-2">Delete Profile?</h3>
+            <p className="text-sm text-slate-400 mb-6">
+              Are you sure you want to delete "{activeProfile.name}"? All terms in this profile will be permanently removed.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button variant="ghost" onClick={handleCancelDeleteProfile}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleConfirmDeleteProfile}>
+                Delete Profile
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed bottom-6 right-6 z-50 animate-slide-up">
+          <div className={`px-4 py-3 rounded-lg shadow-lg border ${
+            notification.type === 'success'
+              ? 'bg-green-900/90 border-green-700 text-green-100'
+              : 'bg-red-900/90 border-red-700 text-red-100'
+          }`}>
+            <div className="flex items-center gap-2">
+              {notification.type === 'success' ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <span className="text-lg">⚠</span>
+              )}
+              <span className="text-sm font-medium">{notification.message}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
