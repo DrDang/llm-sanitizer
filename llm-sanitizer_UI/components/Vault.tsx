@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Check, Shield, Search, Copy, RefreshCw, ChevronRight, Settings, Download, Upload } from 'lucide-react';
+import { Plus, Trash2, Check, Shield, Search, Copy, RefreshCw, ChevronRight, Settings, Download, Upload, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Profile, Term } from '../types';
 import { Button } from './Button';
 import { generatePlaceholder } from '../services/sanitizer';
@@ -31,6 +31,8 @@ export const Vault: React.FC<VaultProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'none' | 'original-asc' | 'original-desc' | 'placeholder-asc' | 'placeholder-desc'>('none');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
@@ -222,6 +224,73 @@ export const Vault: React.FC<VaultProps> = ({
         </form>
       </div>
 
+      {/* Search and Sort Controls */}
+      {activeProfile.terms.length > 0 && (
+        <div className="p-4 border-b border-slate-800 space-y-2">
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search terms..."
+              className="w-full bg-dark-800 text-slate-200 placeholder-slate-500 border border-slate-700 rounded-lg py-2 pl-9 pr-9 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent focus:outline-none transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2.5 p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Sort Controls */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Sort by:</span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setSortBy(sortBy === 'original-asc' ? 'original-desc' : 'original-asc')}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                  sortBy.startsWith('original')
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-dark-800 text-slate-400 hover:bg-dark-700'
+                }`}
+              >
+                Original
+                {sortBy === 'original-asc' && <ArrowUp className="w-3 h-3" />}
+                {sortBy === 'original-desc' && <ArrowDown className="w-3 h-3" />}
+                {!sortBy.startsWith('original') && <ArrowUpDown className="w-3 h-3" />}
+              </button>
+              <button
+                onClick={() => setSortBy(sortBy === 'placeholder-asc' ? 'placeholder-desc' : 'placeholder-asc')}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                  sortBy.startsWith('placeholder')
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-dark-800 text-slate-400 hover:bg-dark-700'
+                }`}
+              >
+                Placeholder
+                {sortBy === 'placeholder-asc' && <ArrowUp className="w-3 h-3" />}
+                {sortBy === 'placeholder-desc' && <ArrowDown className="w-3 h-3" />}
+                {!sortBy.startsWith('placeholder') && <ArrowUpDown className="w-3 h-3" />}
+              </button>
+              {sortBy !== 'none' && (
+                <button
+                  onClick={() => setSortBy('none')}
+                  className="px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  title="Clear sort"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Terms List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {activeProfile.terms.length === 0 ? (
@@ -232,19 +301,54 @@ export const Vault: React.FC<VaultProps> = ({
             <p className="text-slate-500 text-sm">No terms in vault.</p>
             <p className="text-slate-600 text-xs mt-1">Add words you want to hide.</p>
           </div>
-        ) : (
-          activeProfile.terms.map(term => (
-            <div 
-              key={term.id} 
+        ) : (() => {
+          // Filter terms based on search query
+          let filteredTerms = activeProfile.terms.filter(term =>
+            term.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            term.placeholder.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+
+          // Sort terms based on sortBy state
+          if (sortBy !== 'none') {
+            filteredTerms = [...filteredTerms].sort((a, b) => {
+              if (sortBy === 'original-asc') {
+                return a.original.toLowerCase().localeCompare(b.original.toLowerCase());
+              } else if (sortBy === 'original-desc') {
+                return b.original.toLowerCase().localeCompare(a.original.toLowerCase());
+              } else if (sortBy === 'placeholder-asc') {
+                return a.placeholder.toLowerCase().localeCompare(b.placeholder.toLowerCase());
+              } else if (sortBy === 'placeholder-desc') {
+                return b.placeholder.toLowerCase().localeCompare(a.placeholder.toLowerCase());
+              }
+              return 0;
+            });
+          }
+
+          // Show "no results" message if search yields no results
+          if (filteredTerms.length === 0) {
+            return (
+              <div className="text-center py-10 px-4">
+                <div className="w-12 h-12 bg-slate-800/50 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Search className="w-6 h-6 text-slate-600" />
+                </div>
+                <p className="text-slate-500 text-sm">No terms match your search.</p>
+                <p className="text-slate-600 text-xs mt-1">Try a different query.</p>
+              </div>
+            );
+          }
+
+          return filteredTerms.map(term => (
+            <div
+              key={term.id}
               className={`group flex items-center justify-between p-3 rounded-lg border transition-all ${
-                term.isActive 
-                  ? 'bg-dark-800 border-slate-700' 
+                term.isActive
+                  ? 'bg-dark-800 border-slate-700'
                   : 'bg-transparent border-transparent opacity-60 hover:opacity-100'
               }`}
             >
               <div className="flex-1 min-w-0 mr-3">
                 <div className="flex items-center">
-                  <input 
+                  <input
                     type="checkbox"
                     checked={term.isActive}
                     onChange={() => handleToggleTerm(term.id)}
@@ -260,16 +364,16 @@ export const Vault: React.FC<VaultProps> = ({
                   </span>
                 </div>
               </div>
-              
-              <button 
+
+              <button
                 onClick={() => handleRemoveTerm(term.id)}
                 className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/10 rounded transition-all"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
-          ))
-        )}
+          ));
+        })()}
       </div>
 
       {/* Footer with Export/Import */}
